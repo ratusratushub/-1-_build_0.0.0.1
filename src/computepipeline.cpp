@@ -93,27 +93,67 @@ void ComputePipeline::uploadBodies(std::span<const MassiveBody> bodies,unsigned 
     if(!packed.empty()) glBufferSubData(GL_SHADER_STORAGE_BUFFER,0,GLsizeiptr(packed.size()*sizeof(Vec4)),packed.data());
     checkGL("Upload bodies");
 }
-void ComputePipeline::step(float dt,float G,float eps) {
-    if(!std::isfinite(dt)||!std::isfinite(G)||!std::isfinite(eps)||G<=0||G>1e4f||eps<0.001f||eps>1e6f||dt<=0||dt>safeStep(sourceMass_+float(particleGravity_?entities_.massUpperBound():0),G,eps)*1.001f) throw std::invalid_argument("Unsafe physics step; use smaller fixed substeps");
-    if(particleGravity_&&entities_.count()>4096) throw std::length_error("Exact self-gravity is limited to 4096 particles");
-    const auto freeTimer=std::find(timerPending_.begin(),timerPending_.end(),false);
-    std::size_t timer=std::size_t(freeTimer-timerPending_.begin());
-    if(timer<timers_.size()) glBeginQuery(GL_TIME_ELAPSED,timers_[timer]);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,3,bodies_);
-    glUseProgram(force_);integer(force_,"bodyCount",bodyCount_);integer(force_,"particleGravity",particleGravity_);
-    scalar(force_,"gravityConstant",G);scalar(force_,"softening",eps);
-    glUseProgram(integrate_);scalar(integrate_,"dt",dt);
-    // Kick-drift-kick: force passes read immutable positions; barriers separate all phases.
-    dispatch(force_);glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    glUseProgram(integrate_);integer(integrate_,"phase",0);dispatch(integrate_);glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    dispatch(force_);glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    glUseProgram(integrate_);integer(integrate_,"phase",1);dispatch(integrate_);
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT|GL_BUFFER_UPDATE_BARRIER_BIT);
+void ComputePipeline::step(float dt, float G, float eps) {
+    if (!std::isfinite(dt) || !std::isfinite(G) || !std::isfinite(eps) || 
+        G <= 0 || G > 1e4f || eps < 0.001f || eps > 1e6f || dt <= 0 ||
+        dt > safeStep(sourceMass_, G, eps) * 1.001f) {
+        throw std::invalid_argument("Unsafe physics step; use smaller fixed substeps");
+    }
+    
+    // УБРАЛИ ограничение: if(particleGravity_ && entities_.count() > 4096) throw...
+    
+    const auto freeTimer = std::find(timerPending_.begin(), timerPending_.end(), false);
+    std::size_t timer = std::size_t(freeTimer - timerPending_.begin());
+    
+    if (timer < timers_.size()) glBeginQuery(GL_TIME_ELAPSED, timers_[timer]);
+    
+    // Привязываем все буферы
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, positions_);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, velocities_);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, accelerations_);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, bodies_);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, membership_);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, offsets_);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, index_);
+    
+    glUseProgram(force_);
+    integer(force_, "bodyCount", bodyCount_);
+    scalar(force_, "gravityConstant", G);
+    scalar(force_, "softening", eps);
+    
+    glUseProgram(integrate_);
+    scalar(integrate_, "dt", dt);
+    
+    // Kick-drift-kick: force passes read immutable positions
+    dispatch(force_);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    
+    glUseProgram(integrate_);
+    integer(integrate_, "phase", 0);
+    dispatch(integrate_);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    
+    dispatch(force_);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    
+    glUseProgram(integrate_);
+    integer(integrate_, "phase", 1);
+    dispatch(integrate_);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+    
     reindex();
-    if(timer<timers_.size()) {glEndQuery(GL_TIME_ELAPSED);timerPending_[timer]=true;}
+    
+    if (timer < timers_.size()) {
+        glEndQuery(GL_TIME_ELAPSED);
+        timerPending_[timer] = true;
+    }
+    
     capture();
-    auto fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);if(!fence) throw std::runtime_error("Frame fence failed");
-    frames_.push_back(fence);glFlush();checkGL("Simulation step");
+    auto fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    if (!fence) throw std::runtime_error("Frame fence failed");
+    frames_.push_back(fence);
+    glFlush();
+    checkGL("Simulation step");
 }
 void ComputePipeline::reindex() {
     if(sortedCapacity_<entities_.capacity()) {
