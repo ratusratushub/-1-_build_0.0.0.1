@@ -14,15 +14,20 @@ struct SimulationConfig {
     // 0: external bodies only; 1: exact particle gravity (validation/small N only).
     unsigned particleGravity=0;
     void validate() const {
-        if(!world.side || world.side>128 || !std::isfinite(world.halfExtent) || world.halfExtent<=0 || world.halfExtent>1e9f ||
-           initialCount>10000000 || !std::isfinite(minMass) || !std::isfinite(maxMass) ||
-           minMass<=0 || maxMass<minMass || maxMass>1e12f || !std::isfinite(minVelocity) || !std::isfinite(maxVelocity) ||
-           maxVelocity<minVelocity || std::abs(minVelocity)>1e6f || std::abs(maxVelocity)>1e6f || !std::isfinite(G) || G<=0 || G>1e4f || !std::isfinite(softening) || softening<0.001f || softening>1e6f ||
-           !std::isfinite(fixedStep) || fixedStep<=0 || fixedStep>1.f/60.f ||
-           !std::isfinite(blackHoleMass) || blackHoleMass<=0 || blackHoleMass>1e12f || !std::isfinite(blackHoleRadius) || blackHoleRadius<=0 ||
-           particleGravity>1 || (particleGravity && initialCount>4096))
-            throw std::invalid_argument("Invalid simulation configuration (exact gravity is limited to 4096 particles)");
-    }
+    if (!world.side || world.side > 128 || !std::isfinite(world.halfExtent) || 
+        world.halfExtent <= 0 || world.halfExtent > 1e9f ||
+        initialCount > 10000000 || !std::isfinite(minMass) || !std::isfinite(maxMass) ||
+        minMass <= 0 || maxMass < minMass || maxMass > 1e12f || 
+        !std::isfinite(minVelocity) || !std::isfinite(maxVelocity) ||
+        maxVelocity < minVelocity || std::abs(minVelocity) > 1e6f || std::abs(maxVelocity) > 1e6f || 
+        !std::isfinite(G) || G <= 0 || G > 1e4f || !std::isfinite(softening) || 
+        softening < 0.001f || softening > 1e6f ||
+        !std::isfinite(fixedStep) || fixedStep <= 0 || fixedStep > 1.f / 60.f ||
+        !std::isfinite(blackHoleMass) || blackHoleMass <= 0 || blackHoleMass > 1e12f || 
+        !std::isfinite(blackHoleRadius) || blackHoleRadius <= 0 ||
+        particleGravity > 1)  // УБРАЛИ: || (particleGravity && initialCount > 4096)
+        throw std::invalid_argument("Invalid simulation configuration");
+}
 };
 // Stateless generation gives reproducible append batches without a CPU particle mirror.
 inline float randomUnit(std::uint32_t value) {
